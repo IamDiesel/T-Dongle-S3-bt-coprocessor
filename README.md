@@ -1,13 +1,8 @@
----
 
 # Lola OS - BLE Coprozessor (T-Dongle-S3)
+Dieses Repository enthält die Firmware für den dedizierten Bluetooth-Coprozessor des Lola OS Smart Home Systems.
+Das Hauptprojekt (die Firmware für das Host-System / M5Tab) findest du hier: https://github.com/IamDiesel/Lela
 
-Dieses Repository enthält die Firmware für den dedizierten Bluetooth-Coprozessor des **Lola OS** Smart Home Systems.
-
-Das Hauptprojekt (die Firmware für das Host-System / M5Tab) findest du hier:
-👉 **[Lola OS Hauptprojekt (Lela) auf GitHub](https://github.com/IamDiesel/Lela)**
-
----
 
 ## 🧠 Warum ein Coprozessor?
 
