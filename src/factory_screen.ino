@@ -14,7 +14,6 @@ void setup() {
 
     FastLED.addLeds<APA102, LED_DI_PIN, LED_CI_PIN, BGR>(leds, 1);
     
-    // Wir starten im MODE_GRAPHIC_LED_OFF -> Die LED muss initial aus sein!
     FastLED.setBrightness(0);
     leds[0] = CRGB::Black; 
     FastLED.show();
@@ -37,29 +36,34 @@ void loop() {
 
     if (current_btn_state && !last_btn_state) { 
         if (now - last_btn_press > 50) { 
-            DisplayMode cur = getDisplayMode();
-            cur = (DisplayMode)((cur + 1) % 6); // Rotiert durch alle 6 Modi
-            setDisplayMode(cur);
             
-            // LED Logik auswerten
-            bool led_is_on_mode = (cur == MODE_GRAPHIC_LED_ON || cur == MODE_TEXT_LED_ON || cur == MODE_OFF_LED_ON);
-            
-            if (!led_is_on_mode) {
-                FastLED.setBrightness(0); 
-                leds[0] = CRGB::Black;
-                FastLED.show();
+            if (getAlarmActive()) {
+                // Wenn Alarm aktiv ist, schaltet der Knopf NUR den Alarm aus!
+                setAlarmActive(false);
             } else {
-                FastLED.setBrightness(100); 
-            }
+                // Normales Durchschalten der 6 Modi
+                DisplayMode cur = getDisplayMode();
+                cur = (DisplayMode)((cur + 1) % 6); 
+                setDisplayMode(cur);
+                
+                bool led_is_on_mode = (cur == MODE_GRAPHIC_LED_ON || cur == MODE_TEXT_LED_ON || cur == MODE_OFF_LED_ON);
+                
+                if (!led_is_on_mode) {
+                    FastLED.setBrightness(0); 
+                    leds[0] = CRGB::Black;
+                    FastLED.show();
+                } else {
+                    FastLED.setBrightness(100); 
+                }
 
-            // Zeige Overlay (außer der Bildschirm ist aus)
-            if (cur != MODE_OFF_LED_OFF && cur != MODE_OFF_LED_ON) {
-                String modeName = "";
-                if (cur == MODE_GRAPHIC_LED_OFF) modeName = "Grafik (LED Aus)";
-                else if (cur == MODE_GRAPHIC_LED_ON) modeName = "Grafik (LED An)";
-                else if (cur == MODE_TEXT_LED_OFF) modeName = "Text (LED Aus)";
-                else if (cur == MODE_TEXT_LED_ON) modeName = "Text (LED An)";
-                showModeOverlay(modeName);
+                if (cur != MODE_OFF_LED_OFF && cur != MODE_OFF_LED_ON) {
+                    String modeName = "";
+                    if (cur == MODE_GRAPHIC_LED_OFF) modeName = "Grafik (LED Aus)";
+                    else if (cur == MODE_GRAPHIC_LED_ON) modeName = "Grafik (LED An)";
+                    else if (cur == MODE_TEXT_LED_OFF) modeName = "Text (LED Aus)";
+                    else if (cur == MODE_TEXT_LED_ON) modeName = "Text (LED An)";
+                    showModeOverlay(modeName);
+                }
             }
             last_btn_press = now;
         }
@@ -69,8 +73,19 @@ void loop() {
     processUSBRx(); 
     processUSBTx();
 
-    // UI & LED Update (1x pro Sekunde)
-    if (now - last_ui_update > 1000) {
+    // --- Aggressives Rotes Blinken während des Alarms ---
+    if (getAlarmActive()) {
+        if ((now / 150) % 2 == 0) { // Sehr schnelles Blinken
+            FastLED.setBrightness(255);
+            leds[0] = CRGB::Red;
+        } else {
+            FastLED.setBrightness(0);
+            leds[0] = CRGB::Black;
+        }
+        FastLED.show();
+    } 
+    // --- Normales UI & LED Update (1x pro Sekunde) ---
+    else if (now - last_ui_update > 1000) {
         last_ui_update = now;
         DisplayMode mode = getDisplayMode();
 
@@ -78,10 +93,8 @@ void loop() {
         bool isScan = isBleScanning();
         String statusMsg = getBleStatusMsg();
 
-        // UI Hintergrundberechnung
         updateDisplayUi(getDiscoveredDevices(), statusMsg, isConn, isScan);
 
-        // Darf die LED in diesem Modus überhaupt leuchten?
         bool led_is_on_mode = (mode == MODE_GRAPHIC_LED_ON || mode == MODE_TEXT_LED_ON || mode == MODE_OFF_LED_ON);
 
         if (led_is_on_mode) {

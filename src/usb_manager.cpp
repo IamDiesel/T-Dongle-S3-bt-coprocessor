@@ -1,5 +1,6 @@
 #include "usb_manager.h"
 #include "ble_manager.h"
+#include "display_manager.h" // NEU: Header für Alarm-Steuerung eingebunden
 #include <ArduinoJson.h>
 #include <vector>
 
@@ -94,6 +95,13 @@ void processUSBRx() {
             else if (cmd == "scan_stop") {
                 stopScan();
             }
+            // NEU: Alarm Befehle im JSON-Format
+            else if (cmd == "alarm_on") {
+                setAlarmActive(true);
+            }
+            else if (cmd == "alarm_off") {
+                setAlarmActive(false);
+            }
             else if (cmd == "connect") {
                 String mac = doc["mac"] | "";
                 SensorConfig cfg;
@@ -115,6 +123,9 @@ void processUSBRx() {
         } else {
             if (input == "scan_start") startScan({});
             else if (input == "scan_stop") stopScan();
+            // NEU: Alarm Befehle als Text-Fallback
+            else if (input == "alarm_on") setAlarmActive(true);
+            else if (input == "alarm_off") setAlarmActive(false);
             else if (input.startsWith("connect ")) {
                 String targetMac = input.substring(8);
                 targetMac.trim();
