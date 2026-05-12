@@ -1,76 +1,60 @@
+---
+
+# Lola OS - BLE Coprozessor (T-Dongle-S3)
+
+Dieses Repository enthält die Firmware für den dedizierten Bluetooth-Coprozessor des **Lola OS** Smart Home Systems.
+
+Das Hauptprojekt (die Firmware für das Host-System / M5Tab) findest du hier:
+👉 **[Lola OS Hauptprojekt (Lela) auf GitHub](https://github.com/IamDiesel/Lela)**
 
 ---
 
-# Lola OS - Smart Home & BLE Hub
+## 🧠 Warum ein Coprozessor?
 
-Lola OS ist eine maßgeschneiderte Firmware für das **M5Tab**, die als zentrale Smart-Home-Schnittstelle, Baby-Monitor und hochleistungsfähiger Bluetooth-Hub dient.
+Bluetooth Low Energy (BLE) und intensives WLAN (Video-Streaming, MQTT) teilen sich auf einem ESP32 dieselbe 2.4 GHz Antenne. Wenn das Host-System gleichzeitig nach Beacons scannt und hohe Datenmengen streamt, kommt es zur sogenannten **Radio Starvation** (die Antenne "verhungert"). Verbindungen brechen ab oder Pakete gehen verloren.
 
-Um die Hardware-Limitierungen des internen ESP32-Funkchips bei gleichzeitiger Nutzung von WLAN (MQTT/Video-Streaming) und Bluetooth zu umgehen, nutzt dieses Projekt eine Dual-Core-Architektur: Das M5Tab fungiert als Host, während ein per USB angeschlossener **LilyGO T-Dongle-S3** als dedizierter BLE-Coprozessor arbeitet.
+Dieses Projekt löst das Problem architektonisch: Ein per USB angeschlossener **LilyGO T-Dongle-S3** übernimmt 100% der Bluetooth-Aufgaben. Er verarbeitet alle Scans und Sensorverbindungen autark und übergibt dem M5Tab über USB-CDC nur noch saubere, aufbereitete JSON-Daten.
 
-## ✨ Features
+## ✨ Kern-Features
 
-* **Dual-Core Hardware Architektur:** Nahtlose Trennung von rechenintensiver UI/WLAN-Logik (M5Tab) und zeitkritischen Funkprotokollen (T-Dongle-S3).
-* **Dynamisches BLE Time-Slicing:** Der Coprozessor teilt seine Antennenzeit intelligent zwischen aktivem Scannen (Beacons/Tracker) und aktiven Sensorverbindungen auf.
-* **Edge Processing:** Rohdaten von Bluetooth-Sensoren (z. B. Druckmatten) werden direkt auf dem Dongle verarbeitet und als saubere JSON-Fließkommazahlen an das Tab übergeben.
-* **Smart Home Integration:** Native Anbindung an Home Assistant via MQTT.
-* **Baby-Monitor:** Integrierter Audio- und Video-Stream (MJPEG) direkt auf dem Dashboard.
-* **LVGL Benutzeroberfläche:** Flüssiges, responsives Touch-Interface mit Dark-Mode, Echtzeit-Graphen und dynamischen Einstellungsmenüs.
+* **Dynamisches Time-Slicing:** Der Dongle erkennt automatisch, ob er "nur scannen" oder auch Sensoren (z.B. Druckmatten) abfragen muss. Er passt seine Funk-Fenster dynamisch an (z.B. 99ms Scan-Zeit vs. 30ms Scan-Zeit im Mischbetrieb), um verbundenen Sensoren genug "Atemluft" zu geben.
+* **Intelligente Anti-Spam Drosselung:** Ein Scanner in einer typischen Umgebung empfängt oft hunderte Pakete pro Sekunde, was die Grafik-Engine (LVGL) des Host-Systems zum Absturz bringen kann. Dieser Coprozessor drosselt den Traffic intelligent:
+* Umgebungs-Beacons werden max. alle **2 Sekunden** an das Host-System gemeldet.
+* Aktive Sensordaten werden auf **10 Updates pro Sekunde (10 Hz)** limitiert.
 
-## 🛠️ Hardware-Voraussetzungen
 
-1. **M5Stack M5Tab** (Hauptrechner, Display, Audio, WLAN)
-2. **LilyGO T-Dongle-S3** (BLE Coprozessor, angesteckt über USB-C)
-3. Kompatible BLE Sensoren (z. B. CatMat Drucksensor, Kippy Tracker, Shelly BLE Beacons)
+* **Lock-Free USB-Buffer (Swap-and-Print):** Ein hochpriorisierter Thread sammelt BLE-Interrupts in einem Vektor. Um *Priority Inversions* mit der langsameren seriellen USB-Ausgabe zu vermeiden, wird der Puffer in Mikrosekunden getauscht. Der Host erhält dadurch flüssige JSON-Strings ohne Fragmentierung.
+* **Edge-Computing & Parsing:** Der Dongle empfängt eine dynamische JSON-Konfiguration (Offset, Length, Endianness, Multiplikator) vom Host, liest die rohen Bytes des Bluetooth-Sensors aus und sendet fertige Fließkommazahlen (Floats) zurück.
 
-## 📁 Repository-Struktur
+## 🛠️ Hardware & Installation
 
-Das Projekt ist in zwei Hauptkomponenten unterteilt, die beide über PlatformIO verwaltet werden:
+* **Hardware:** LilyGO T-Dongle-S3 (ESP32-S3)
+* **Schnittstelle:** USB-C (wird vom M5Tab als USB-Host mit Strom versorgt)
+* **Framework:** Arduino (via PlatformIO)
 
-```text
-├── src/                  # Lola OS (M5Tab Firmware)
-│   ├── config/           # Globale Einstellungen, Secrets & SharedData
-│   ├── gui/              # LVGL-basierte Benutzeroberfläche (Dashboards, Popups)
-│   ├── ha/               # Home Assistant & MQTT Logik
-│   ├── media/            # Audio- und Video-Streaming
-│   ├── system/           # Kernlogik (BLE Parser, WebSetup, LVGL Driver)
-│   └── main.cpp          # Einstiegspunkt M5Tab
-│
-├── dongle_firmware/      # Coprozessor Firmware (LilyGO T-Dongle-S3)
-│   ├── ble_manager.cpp   # Funk-Logik, Auto-Retries & Time-Slicing
-│   ├── usb_manager.cpp   # USB-CDC Kommunikation & JSON Puffer
-│   └── factory_screen.ino# Einstiegspunkt Dongle
-│
-├── platformio.ini        # Build-Konfigurationen für beide Geräte
-└── README.md             # Diese Dokumentation
+### Kompilieren
+
+Das Projekt ist für **PlatformIO** vorkonfiguriert.
+
+1. Repository klonen.
+2. Den T-Dongle-S3 in den PC einstecken.
+3. Den Upload über das Environment `env:T-Dongle-S3` starten.
+
+## 🔌 API / Kommunikationsprotokoll (JSON)
+
+Die Kommunikation läuft über die USB-CDC Schnittstelle (115200 Baud).
+
+### 1. Befehle vom Host an den Dongle (RX)
+
+**Scannen:**
+
+```json
+{"cmd": "scan_start", "filters": ["70:4B:CA:46:22:6E"]}
+{"cmd": "scan_stop"}
 
 ```
 
-## 🚀 Installation & Kompilieren
-
-Dieses Projekt verwendet **PlatformIO**.
-
-### 1. Vorbereitung
-
-Erstelle eine Datei `src/config/secrets.h` basierend auf der Vorlage `secrets_dummy.h` und trage deine WLAN- und MQTT-Daten ein.
-
-### 2. Coprozessor flashen (T-Dongle-S3)
-
-1. Stecke den T-Dongle-S3 in deinen PC.
-2. Wähle in PlatformIO das Environment `env:T-Dongle-S3`.
-3. Kompiliere den Code aus dem Ordner `dongle_firmware` und lade ihn hoch.
-
-### 3. Host flashen (M5Tab)
-
-1. Stecke das M5Tab an deinen PC.
-2. Wähle in PlatformIO das Environment für das M5Tab (z.B. `esp32p4_m5stack`).
-3. Kompiliere und flashe den Code.
-4. Schließe den Dongle an den USB-C-Port des M5Tabs an. Das System initialisiert die USB-CDC-Verbindung automatisch.
-
-## 🔌 Kommunikationsprotokoll (Host <-> Dongle)
-
-Die Kommunikation erfolgt über **USB-CDC (115200 Baud)** via JSON. Der Dongle besitzt eine integrierte Anti-Spam-Drosselung (Beacons max. alle 2 Sekunden, Sensordaten max. 10Hz), um den USB-Puffer des Host-Systems zu schonen.
-
-**Beispiel: M5Tab sendet Verbindungsbefehl:**
+**Verbindung zu einem Sensor aufbauen (mit Edge-Processing Parametern):**
 
 ```json
 {
@@ -79,20 +63,34 @@ Die Kommunikation erfolgt über **USB-CDC (115200 Baud)** via JSON. Der Dongle b
   "service": "FFF0",
   "char": "FFF1",
   "offset": 5,
-  "length": 2
+  "length": 2,
+  "big_endian": true,
+  "is_signed": false,
+  "multiplier": 1.0,
+  "add": 0.0
 }
 
 ```
 
-**Beispiel: Dongle meldet Sensorwert zurück:**
+### 2. Events vom Dongle an den Host (TX)
+
+**Umgebungsgeräte (Beacons - gedrosselt auf 0.5 Hz):**
 
 ```json
-{
-  "event": "sensor",
-  "mac": "70:4B:CA:46:22:6E",
-  "value": 4531.0
-}
+{"event":"beacon","mac":"70:4B:CA:46:22:6E","name":"CatMat-EXT","rssi":-67}
 
 ```
 
-*(Für eine vollständige Auflistung aller Befehle siehe die interne Schnittstellenspezifikation).*
+**Fertig berechnete Sensorwerte (gedrosselt auf 10 Hz):**
+
+```json
+{"event":"sensor","mac":"70:4B:CA:46:22:6E","value":4531.0}
+
+```
+
+**Diagnose & Status:**
+
+```json
+{"event":"status","msg":"Physisch verbunden! Suche Services..."}
+
+```
