@@ -9,9 +9,9 @@ struct BleDevice {
     String name;
     int rssi;
     uint32_t last_seen;
+    uint32_t last_sent_usb; // Zeitstempel für die USB-Drosselung
 };
 
-// Konfiguration für das dynamische Auslesen eines Sensors
 struct SensorConfig {
     String serviceUUID;
     String charUUID;
@@ -26,15 +26,13 @@ struct SensorConfig {
 // --- Öffentliche Funktionen ---
 void initBLE();
 
-// Scanner-Steuerung
 void startScan(std::vector<String> macFilters);
 void stopScan();
 
-// Verbindungs-Steuerung
 void connectToBleServer(String macAddress, SensorConfig config);
 void disconnectFromBleServer(String macAddress);
 
-// Getter für die UI
 std::vector<BleDevice> getDiscoveredDevices();
 String getBleStatusMsg();
 bool isBleConnected();
+bool isBleScanning(); // <-- NEU: Für die Display-Logik

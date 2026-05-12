@@ -11,6 +11,7 @@ struct ConnectionData {
     NimBLEClient* pClient;
     SensorConfig config;
     String lastValue;
+    uint32_t last_sent_usb;
 };
 
 static std::map<String, ConnectionData> activeConnections;
@@ -25,7 +26,7 @@ static void adjustScanTiming() {
     }
     if (hasConnections) {
         pBLEScan->setInterval(100);
-        pBLEScan->setWindow(30); // Noch etwas mehr Luft für Sensordaten (70ms Pause)
+        pBLEScan->setWindow(30); 
     } else {
         pBLEScan->setInterval(100);
         pBLEScan->setWindow(99); 
@@ -36,7 +37,6 @@ static void notifyCallback(NimBLERemoteCharacteristic* pBLERemoteCharacteristic,
     String mac = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
     mac.toUpperCase();
 
-    // Nicht blockieren! Wenn der Mutex besetzt ist, warten wir max. 10 Ticks.
     if (xSemaphoreTake(bleMutex, pdMS_TO_TICKS(10))) {
         if (activeConnections.find(mac) != activeConnections.end()) {
             SensorConfig cfg = activeConnections[mac].config;
@@ -65,7 +65,11 @@ static void notifyCallback(NimBLERemoteCharacteristic* pBLERemoteCharacteristic,
                 finalValue = (finalValue * cfg.multiplier) + cfg.addOffset;
                 activeConnections[mac].lastValue = String(finalValue, 2); 
                 
-                sendSensorData(mac, finalValue); 
+                uint32_t now = millis();
+                if (now - activeConnections[mac].last_sent_usb >= 100) {
+                    activeConnections[mac].last_sent_usb = now;
+                    sendSensorData(mac, finalValue); 
+                }
             }
         }
         xSemaphoreGive(bleMutex);
@@ -88,9 +92,8 @@ class MyAdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             if (!matched) return; 
         }
 
-        sendBeaconData(mac, name, rssi);
+        bool shouldSendUsb = false;
 
-        // Mutex Timeout auf 0 gesetzt! Beacons niemals warten lassen.
         if (xSemaphoreTake(bleMutex, 0)) {
             bool found = false;
             for (auto& dev : discoveredDevices) {
@@ -98,19 +101,29 @@ class MyAdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
                     if (name != "") dev.name = name; 
                     dev.rssi = rssi;        
                     dev.last_seen = now;    
+                    if (now - dev.last_sent_usb >= 2000) {
+                        dev.last_sent_usb = now;
+                        shouldSendUsb = true;
+                    }
                     found = true;
                     break;
                 }
             }
-            if (!found) discoveredDevices.push_back({mac, name, rssi, now});
+            if (!found) {
+                discoveredDevices.push_back({mac, name, rssi, now, now});
+                shouldSendUsb = true; 
+            }
             xSemaphoreGive(bleMutex);
+        }
+
+        if (shouldSendUsb) {
+            sendBeaconData(mac, name, rssi);
         }
     }
 };
 
 class MyClientCallback : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient* pclient) {}
-
     void onDisconnect(NimBLEClient* pclient) {
         String mac = pclient->getPeerAddress().toString().c_str();
         mac.toUpperCase();
@@ -128,7 +141,7 @@ class MyClientCallback : public NimBLEClientCallbacks {
 
 void initBLE() {
     bleMutex = xSemaphoreCreateMutex();
-    NimBLEDevice::init("M5_Coprocessor");
+    NimBLEDevice::init("T-Dongle-Coproc");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     pBLEScan = NimBLEDevice::getScan();
     pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
@@ -159,7 +172,6 @@ void connectToBleServer(String macAddress, SensorConfig config) {
     macAddress.toUpperCase();
     String cleanMac = macAddress;
     cleanMac.trim();
-
     sendStatusMessage("Verbindungsaufbau: " + cleanMac);
     NimBLEAddress address(cleanMac.c_str());
     
@@ -173,36 +185,31 @@ void connectToBleServer(String macAddress, SensorConfig config) {
     bool success = false;
     for (int i = 1; i <= 3; i++) {
         sendStatusMessage(String("Versuch ") + i + "/3...");
-        if (pClient->connect(address)) {
-            success = true;
-            break;
-        }
+        if (pClient->connect(address)) { success = true; break; }
         delay(200); 
     }
 
     if(success) {
-        sendStatusMessage("Physisch verbunden! Suche Services...");
+        sendStatusMessage("Verbunden! Suche Services...");
         NimBLERemoteService* pService = pClient->getService(config.serviceUUID.c_str());
         if (pService != nullptr) {
             NimBLERemoteCharacteristic* pChar = pService->getCharacteristic(config.charUUID.c_str());
             if (pChar != nullptr && pChar->canNotify()) {
-                
                 pChar->subscribe(true, notifyCallback);
-                
                 if (xSemaphoreTake(bleMutex, portMAX_DELAY)) {
-                    activeConnections[cleanMac] = {pClient, config, "Warte..."};
+                    activeConnections[cleanMac] = {pClient, config, "Warte...", 0};
                     xSemaphoreGive(bleMutex);
                 }
-                sendStatusMessage("ERFOLG: Abonniert auf " + cleanMac);
+                sendStatusMessage("ERFOLG: Abonniert!");
                 adjustScanTiming();
                 if (isScanRequested) pBLEScan->start(0, nullptr, false);
                 return;
             }
         }
-        sendStatusMessage("Fehler: Service oder Charakteristik nicht gefunden!");
+        sendStatusMessage("Fehler: Service nicht gefunden!");
         pClient->disconnect(); 
     } else {
-        sendStatusMessage("Fehler: Endgültig fehlgeschlagen nach 3 Versuchen!");
+        sendStatusMessage("Fehler: Timeout nach 3 Versuchen!");
         NimBLEDevice::deleteClient(pClient);
         adjustScanTiming();
         if (isScanRequested) pBLEScan->start(0, nullptr, false); 
@@ -213,7 +220,6 @@ void disconnectFromBleServer(String macAddress) {
     macAddress.toUpperCase();
     String cleanMac = macAddress;
     cleanMac.trim();
-
     if (xSemaphoreTake(bleMutex, portMAX_DELAY)) {
         if (activeConnections.find(cleanMac) != activeConnections.end()) {
             activeConnections[cleanMac].pClient->disconnect();
@@ -222,43 +228,31 @@ void disconnectFromBleServer(String macAddress) {
     }
 }
 
-// ---> DER FIX: Ausserhalb des Mutex sortieren! <---
 std::vector<BleDevice> getDiscoveredDevices() {
     std::vector<BleDevice> safeCopy;
     uint32_t now = millis();
-    
     if (xSemaphoreTake(bleMutex, portMAX_DELAY)) {
-        // Nur kurzes Aufräumen und Kopieren (geht in Mikrosekunden)
         discoveredDevices.erase(
             std::remove_if(discoveredDevices.begin(), discoveredDevices.end(),
                 [now](const BleDevice& d) { return (now - d.last_seen) > 30000; }),
             discoveredDevices.end()
         );
         safeCopy = discoveredDevices; 
-        xSemaphoreGive(bleMutex); // Mutex SOFORT wieder freigeben
+        xSemaphoreGive(bleMutex); 
     }
-    
-    // Sortieren der Kopie erfordert keinen Mutex und blockiert den Scanner nicht!
-    std::sort(safeCopy.begin(), safeCopy.end(),
-        [](const BleDevice& a, const BleDevice& b) { return a.rssi > b.rssi; }
-    );
-    
+    std::sort(safeCopy.begin(), safeCopy.end(), [](const BleDevice& a, const BleDevice& b) { return a.rssi > b.rssi; });
     return safeCopy;
 }
 
 String getBleStatusMsg() {
     String msg = "";
     if (xSemaphoreTake(bleMutex, portMAX_DELAY)) {
-        if (activeConnections.empty()) {
-            msg = isScanRequested ? "Scanne Umgebung..." : "Standby (Scan Aus)";
+        if (!activeConnections.empty()) {
+            auto it = activeConnections.begin();
+            // Saubere Formatierung für das Display
+            msg = "MAC: " + it->first.substring(9) + "\nWert: " + it->second.lastValue;
         } else {
-            msg = "Verbunden (" + String(activeConnections.size()) + "):\n";
-            int count = 0;
-            for (auto const& pair : activeConnections) {
-                if (count++ >= 3) break; 
-                String shortMac = pair.first.substring(9);
-                msg += shortMac + " -> " + pair.second.lastValue + "\n";
-            }
+            msg = "Warte auf Daten...";
         }
         xSemaphoreGive(bleMutex);
     }
@@ -272,4 +266,13 @@ bool isBleConnected() {
         xSemaphoreGive(bleMutex);
     }
     return connected;
+}
+
+bool isBleScanning() {
+    bool scanning = false;
+    if (xSemaphoreTake(bleMutex, portMAX_DELAY)) {
+        scanning = isScanRequested;
+        xSemaphoreGive(bleMutex);
+    }
+    return scanning;
 }

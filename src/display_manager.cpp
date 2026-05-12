@@ -7,10 +7,25 @@
 #include "esp_lcd_st7735.h"
 
 static esp_lcd_panel_handle_t panel_handle = NULL;
+
+static lv_obj_t * cont_text;
+static lv_obj_t * cont_graphic;
+static lv_obj_t * overlay_label;
+static lv_timer_t * overlay_timer;
+
 static lv_obj_t *ble_status_label;
 static lv_obj_t *ble_data_label;
 
-LV_FONT_DECLARE(lv_font_montserrat_8);
+static lv_obj_t *img_cat_idle;
+static lv_obj_t *img_cat_scan;
+static lv_obj_t *img_cat_conn;
+
+LV_IMAGE_DECLARE(cat_idle_small);
+LV_IMAGE_DECLARE(cat_searching_small);
+LV_IMAGE_DECLARE(cat_connected_small);
+
+// Standard-Modus beim Booten
+static DisplayMode current_mode = MODE_GRAPHIC_LED_OFF; 
 
 static void disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p) {
     size_t len = lv_area_get_size(area);
@@ -19,22 +34,55 @@ static void disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *color
     lv_display_flush_ready(disp);
 }
 
-static uint32_t lv_tick_get_callback(void) { return millis(); }
+static void overlay_timer_cb(lv_timer_t * timer) {
+    lv_obj_add_flag(overlay_label, LV_OBJ_FLAG_HIDDEN);
+    lv_timer_pause(timer); 
+}
+
+void showModeOverlay(String modeName) {
+    lv_label_set_text(overlay_label, modeName.c_str());
+    lv_obj_clear_flag(overlay_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(overlay_label);
+    lv_timer_reset(overlay_timer);
+    lv_timer_resume(overlay_timer);
+}
+
+void setDisplayMode(DisplayMode mode) {
+    current_mode = mode;
+    
+    bool isOff = (mode == MODE_OFF_LED_OFF || mode == MODE_OFF_LED_ON);
+    bool isText = (mode == MODE_TEXT_LED_OFF || mode == MODE_TEXT_LED_ON);
+    bool isGraphic = (mode == MODE_GRAPHIC_LED_OFF || mode == MODE_GRAPHIC_LED_ON);
+
+    if (isOff) {
+        digitalWrite(PIN_NUM_BCKL, HIGH); // HIGH = DISPLAY AUS
+    } else {
+        digitalWrite(PIN_NUM_BCKL, LOW);  // LOW = DISPLAY AN
+        if (isText) {
+            lv_obj_clear_flag(cont_text, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(cont_graphic, LV_OBJ_FLAG_HIDDEN);
+        } else if (isGraphic) {
+            lv_obj_add_flag(cont_text, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(cont_graphic, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+DisplayMode getDisplayMode() { return current_mode; }
+
+static void cat_anim_cb(void * var, int32_t v) {
+    lv_obj_set_y((lv_obj_t *)var, v);
+}
 
 void initDisplay() {
     pinMode(PIN_NUM_BCKL, OUTPUT);
-    digitalWrite(PIN_NUM_BCKL, HIGH);
+    digitalWrite(PIN_NUM_BCKL, LOW);
 
     static spi_bus_config_t spi_config = ST7735_PANEL_BUS_SPI_CONFIG(PIN_NUM_CLK, PIN_NUM_MOSI, LCD_PIXEL_WIDTH * LCD_PIXEL_HEIGHT * sizeof(uint16_t));
     static esp_lcd_panel_io_spi_config_t io_config = ST7735_PANEL_IO_SPI_CONFIG(PIN_NUM_CS, PIN_NUM_DC, NULL, NULL);
     static esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = PIN_NUM_RST,
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
         .color_space = ESP_LCD_COLOR_SPACE_BGR,
-#else
-        .color_space = LCD_RGB_ELEMENT_ORDER_BGR,
-        .data_endian = LCD_RGB_DATA_ENDIAN_LITTLE,
-#endif
         .bits_per_pixel = 16,
     };
 
@@ -55,53 +103,125 @@ void initDisplay() {
     lv_color16_t *buf = (lv_color16_t *)malloc(lv_buffer_size);
     lv_display_t *disp_drv = lv_display_create(LCD_PIXEL_WIDTH, LCD_PIXEL_HEIGHT);
     lv_display_set_buffers(disp_drv, buf, NULL, lv_buffer_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
-    lv_display_set_color_format(disp_drv, LV_COLOR_FORMAT_RGB565);
     lv_display_set_flush_cb(disp_drv, disp_flush);
-    lv_tick_set_cb(lv_tick_get_callback);
+    lv_tick_set_cb([]() { return (uint32_t)millis(); });
 
-    lv_obj_set_style_bg_color(lv_screen_active(), lv_color_black(), 0);
+    lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
+
+    // --- Container: TEXT ---
+    cont_text = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(cont_text, 160, 80);
+    lv_obj_set_style_pad_all(cont_text, 0, 0);
+    lv_obj_set_style_radius(cont_text, 0, 0); 
+    lv_obj_set_style_bg_color(cont_text, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_border_width(cont_text, 0, 0);
+
+    ble_status_label = lv_label_create(cont_text);
+    lv_obj_set_style_text_font(ble_status_label, lv_theme_get_font_normal(NULL), 0);
+    lv_obj_align(ble_status_label, LV_ALIGN_TOP_MID, 0, 2);
+
+    static lv_point_precise_t line_points[] = { {0, 0}, {160, 0} };
+    lv_obj_t * line = lv_line_create(cont_text);
+    lv_line_set_points(line, line_points, 2);
+    lv_obj_set_style_line_color(line, lv_color_hex(0x333333), 0);
+    lv_obj_align(line, LV_ALIGN_TOP_MID, 0, 18);
+
+    ble_data_label = lv_label_create(cont_text);
+    lv_obj_set_style_text_color(ble_data_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(ble_data_label, lv_theme_get_font_small(NULL), 0);
+    lv_obj_align(ble_data_label, LV_ALIGN_TOP_LEFT, 2, 22);
+
+    // --- Container: GRAFIK ---
+    cont_graphic = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(cont_graphic, 160, 80);
+    lv_obj_set_style_pad_all(cont_graphic, 0, 0);
+    lv_obj_set_style_radius(cont_graphic, 0, 0); 
+    lv_obj_set_style_bg_color(cont_graphic, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_border_width(cont_graphic, 0, 0);
+    lv_obj_add_flag(cont_graphic, LV_OBJ_FLAG_HIDDEN);
+
+    img_cat_idle = lv_image_create(cont_graphic);
+    lv_image_set_src(img_cat_idle, &cat_idle_small);
+    lv_obj_align(img_cat_idle, LV_ALIGN_CENTER, 0, 0);
+
+    img_cat_scan = lv_image_create(cont_graphic);
+    lv_image_set_src(img_cat_scan, &cat_searching_small);
+    lv_obj_align(img_cat_scan, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(img_cat_scan, LV_OBJ_FLAG_HIDDEN);
+
+    img_cat_conn = lv_image_create(cont_graphic);
+    lv_image_set_src(img_cat_conn, &cat_connected_small);
+    lv_obj_align(img_cat_conn, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(img_cat_conn, LV_OBJ_FLAG_HIDDEN);
+
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_values(&a, -2, 2);
+    lv_anim_set_duration(&a, 1200);
+    lv_anim_set_playback_duration(&a, 1200);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_exec_cb(&a, cat_anim_cb);
+
+    lv_anim_set_var(&a, img_cat_idle); lv_anim_start(&a);
+    lv_anim_set_var(&a, img_cat_scan); lv_anim_start(&a);
+    lv_anim_set_var(&a, img_cat_conn); lv_anim_start(&a);
+
+    // --- Overlay (Toast) ---
+    overlay_label = lv_label_create(lv_screen_active());
+    lv_obj_set_style_bg_color(overlay_label, lv_color_hex(0xFF8800), 0);
+    lv_obj_set_style_text_color(overlay_label, lv_color_hex(0xFFFFFF), 0);
+    // KLEINERE SCHRIFT FÜR DAS OVERLAY
+    lv_obj_set_style_text_font(overlay_label, lv_theme_get_font_small(NULL), 0);
+    lv_obj_set_style_pad_all(overlay_label, 3, 0);
+    lv_obj_set_style_radius(overlay_label, 4, 0);
+    lv_obj_align(overlay_label, LV_ALIGN_BOTTOM_MID, 0, -2);
+    lv_obj_add_flag(overlay_label, LV_OBJ_FLAG_HIDDEN);
     
-    ble_status_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(ble_status_label, "System Boot");
-    lv_obj_set_style_text_color(ble_status_label, lv_color_make(69, 163, 76), 0); 
-    lv_obj_align(ble_status_label, LV_ALIGN_TOP_MID, 0, 0); 
+    overlay_timer = lv_timer_create(overlay_timer_cb, 1200, NULL);
+    lv_timer_pause(overlay_timer);
 
-    ble_data_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(ble_data_label, "Initialisiere...");
-    lv_obj_set_style_text_color(ble_data_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(ble_data_label, &lv_font_montserrat_8, 0);
-    lv_obj_set_style_text_line_space(ble_data_label, 1, 0); 
-    lv_obj_align(ble_data_label, LV_ALIGN_TOP_LEFT, 2, 18); 
-
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5,0,0)
-    ledcAttach(PIN_NUM_BCKL, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
-    ledcWrite(PIN_NUM_BCKL, 0); 
-#else
-    ledcSetup(LEDC_BACKLIGHT_CHANNEL, LEDC_BACKLIGHT_FREQ, LEDC_BACKLIGHT_BIT_WIDTH);
-    ledcAttachPin(PIN_NUM_BCKL, LEDC_BACKLIGHT_CHANNEL);
-    ledcWrite(LEDC_BACKLIGHT_CHANNEL, 0); 
-#endif
+    setDisplayMode(current_mode); // Wendet den Standardmodus an
 }
 
-void updateDisplayUi(const std::vector<BleDevice>& devices, String statusMsg, bool isConnected) {
+void updateDisplayUi(const std::vector<BleDevice>& devices, String statusMsg, bool isConnected, bool isScanning) {
+    // 1. Text Update
     if (isConnected) {
-        lv_label_set_text(ble_status_label, "BLE Client Mode");
+        lv_label_set_text(ble_status_label, "Verbunden");
+        lv_obj_set_style_text_color(ble_status_label, lv_color_hex(0x45A34C), 0); 
         lv_label_set_text(ble_data_label, statusMsg.c_str());
-    } else {
-        lv_label_set_text(ble_status_label, "Top 5 Beacons");
-        
-        String displayText = "";
-        for (size_t i = 0; i < std::min((size_t)5, devices.size()); ++i) {
+    } else if (isScanning) {
+        lv_label_set_text(ble_status_label, "Scanne Umgebung");
+        lv_obj_set_style_text_color(ble_status_label, lv_color_hex(0x0096FF), 0); 
+        String list = "";
+        for (size_t i = 0; i < std::min((size_t)4, devices.size()); ++i) {
             String dName = devices[i].name != "" ? devices[i].name : devices[i].mac.substring(9);
-            if (dName.length() > 16) dName = dName.substring(0, 14) + "..";
-            displayText += String(i+1) + ". " + dName + " : " + String(devices[i].rssi) + " dBm\n";
+            if (dName.length() > 14) dName = dName.substring(0, 12) + "..";
+            list += String(i+1) + ". " + dName + " (" + String(devices[i].rssi) + ")\n";
         }
-        
-        if (displayText == "") displayText = "Keine Geräte in\nReichweite...";
-        lv_label_set_text(ble_data_label, displayText.c_str());
+        if (list == "") list = "Warte auf Beacons...";
+        lv_label_set_text(ble_data_label, list.c_str());
+    } else {
+        lv_label_set_text(ble_status_label, "Standby");
+        lv_obj_set_style_text_color(ble_status_label, lv_color_hex(0xFF8800), 0); 
+        lv_label_set_text(ble_data_label, "Idle-Modus.\nWarte auf Befehle\nvom M5Tab...");
+    }
+
+    // 2. Graphic Update 
+    if (isConnected) {
+        lv_obj_add_flag(img_cat_idle, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(img_cat_scan, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(img_cat_conn, LV_OBJ_FLAG_HIDDEN); 
+    } else if (isScanning) {
+        lv_obj_add_flag(img_cat_idle, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(img_cat_scan, LV_OBJ_FLAG_HIDDEN); 
+        lv_obj_add_flag(img_cat_conn, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(img_cat_idle, LV_OBJ_FLAG_HIDDEN); 
+        lv_obj_add_flag(img_cat_scan, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(img_cat_conn, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
-void keepDisplayAlive() {
-    lv_timer_handler();
+void keepDisplayAlive() { 
+    lv_timer_handler(); 
 }

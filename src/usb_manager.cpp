@@ -82,14 +82,15 @@ void processUSBRx() {
         if (!error) {
             String cmd = doc["cmd"] | "";
             
-            if (cmd == "scan_start") {
+           if (cmd == "scan_start") {
                 std::vector<String> filters;
-                if (doc.containsKey("filters")) {
+                // Neue ArduinoJson 7 Syntax: Prüfen, ob "filters" ein Array ist
+                if (doc["filters"].is<JsonArray>()) {
                     JsonArray arr = doc["filters"].as<JsonArray>();
                     for (JsonVariant v : arr) filters.push_back(v.as<String>());
                 }
                 startScan(filters);
-            } 
+            }
             else if (cmd == "scan_stop") {
                 stopScan();
             }
