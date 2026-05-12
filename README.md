@@ -1,6 +1,3 @@
-Hier ist ein professioneller Entwurf für deine `README.md` auf GitHub. Er fasst die Architektur, die Hardware und die Features deines Projekts ("Lola OS") perfekt zusammen und berücksichtigt bereits unsere neue, aufgeräumte Ordnerstruktur.
-
-Du kannst diesen Text einfach kopieren und als `README.md` in dein Hauptverzeichnis legen.
 
 ---
 
