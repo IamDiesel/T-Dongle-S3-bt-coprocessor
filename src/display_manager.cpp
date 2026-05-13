@@ -166,7 +166,7 @@ void setAlarmActive(bool active) {
         
         lv_obj_move_foreground(img_cat_story); 
         lv_obj_move_foreground(img_alarm_button);
-        lv_obj_move_foreground(img_alarm_bg); 
+        //lv_obj_move_foreground(img_alarm_bg); 
         
     } else {
         lv_obj_add_flag(img_cat_story, LV_OBJ_FLAG_HIDDEN);
