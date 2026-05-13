@@ -53,7 +53,13 @@ void loop() {
                     leds[0] = CRGB::Black;
                     FastLED.show();
                 } else {
-                    FastLED.setBrightness(100); 
+                    // FIX: LED Helligkeit an die globale USB-Brightness (0-100%) koppeln!
+                    FastLED.setBrightness(map(getDisplayBrightness(), 0, 100, 0, 255)); 
+                    
+                    // Wir erzwingen hier direkt ein Update, damit die LED beim Buttondruck sofort anspringt
+                    uint8_t ledHue = isBleConnected() ? 96 : (isBleScanning() ? 160 : 32);
+                    leds[0] = CHSV(ledHue, 255, 255);
+                    FastLED.show();
                 }
 
                 if (cur != MODE_OFF_LED_OFF && cur != MODE_OFF_LED_ON) {
@@ -73,10 +79,11 @@ void loop() {
     processUSBRx(); 
     processUSBTx();
 
-    // --- Aggressives Rotes Blinken während des Alarms ---
+    // --- Aggressives Blinken während des Alarms ---
     if (getAlarmActive()) {
-        if ((now / 150) % 2 == 0) { // Sehr schnelles Blinken
-            FastLED.setBrightness(255);
+        if ((now / 150) % 2 == 0) { 
+            // FIX: Auch der Alarm respektiert jetzt den Helligkeits-Parameter
+            FastLED.setBrightness(map(getDisplayBrightness(), 0, 100, 0, 255));
             leds[0] = CRGB::Red;
         } else {
             FastLED.setBrightness(0);
@@ -99,10 +106,15 @@ void loop() {
 
         if (led_is_on_mode) {
             uint8_t ledHue = isConn ? 96 : (isScan ? 160 : 32); 
-            FastLED.setBrightness(100);
+            
+            // FIX: Skalierung der FastLED Helligkeit (0-100% -> 0-255)
+            FastLED.setBrightness(map(getDisplayBrightness(), 0, 100, 0, 255));
             leds[0] = CHSV(ledHue, 255, 255); 
             FastLED.show();
             delay(15); 
+            
+            // Da FastLED.setBrightness() global skaliert, funktioniert das Pulsieren
+            // hier weiterhin perfekt proportional zur eingestellten Grundhelligkeit!
             leds[0] = CHSV(ledHue, 255, 100); 
             FastLED.show();
         } else {

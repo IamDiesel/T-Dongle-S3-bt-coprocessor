@@ -4,7 +4,7 @@
 #include "ble_manager.h" 
 
 enum DisplayMode {
-    MODE_GRAPHIC_LED_OFF = 0, // Standard-Modus
+    MODE_GRAPHIC_LED_OFF = 0,
     MODE_GRAPHIC_LED_ON = 1,
     MODE_TEXT_LED_OFF = 2,
     MODE_TEXT_LED_ON = 3,
@@ -20,6 +20,9 @@ void setDisplayMode(DisplayMode mode);
 DisplayMode getDisplayMode();
 void showModeOverlay(String modeName);
 
-// Alarm Steuerung
 void setAlarmActive(bool active);
 bool getAlarmActive();
+
+// NEU: Helligkeitssteuerung
+void setDisplayBrightness(uint8_t percent);
+uint8_t getDisplayBrightness();
