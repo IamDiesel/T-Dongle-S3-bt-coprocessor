@@ -106,3 +106,43 @@ without filter:
 {"event":"status","msg":"Physisch verbunden! Suche Services..."}
 
 ```
+
+**Fehlerhandling**
+
+```json
+[
+  {
+    "event": "error",
+    "type": "invalid_command",
+    "msg": "Unbekannter Befehl: [Befehlsname]"
+  },
+  {
+    "event": "error",
+    "type": "invalid_command",
+    "msg": "MAC-Adresse fehlt beim Connect!"
+  },
+  {
+    "event": "error",
+    "type": "invalid_command",
+    "msg": "MAC-Adresse fehlt beim Disconnect!"
+  },
+  {
+    "event": "error",
+    "type": "connect_failed",
+    "msg": "Sensor nicht gefunden (Timeout)!",
+    "mac": "XX:XX:XX:XX:XX:XX"
+  },
+  {
+    "event": "error",
+    "type": "invalid_service",
+    "msg": "Falscher Sensor: Service/Char fehlt!",
+    "mac": "XX:XX:XX:XX:XX:XX"
+  },
+  {
+    "event": "error",
+    "type": "disconnected",
+    "msg": "Sensor-Verbindung abgerissen!",
+    "mac": "XX:XX:XX:XX:XX:XX"
+  }
+]
+```
