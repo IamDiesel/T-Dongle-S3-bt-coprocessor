@@ -44,7 +44,11 @@ Die Kommunikation läuft über die USB-CDC Schnittstelle (115200 Baud).
 **Scannen:**
 
 ```json
-{"cmd": "scan_start", "filters": ["70:4B:CA:46:22:6E"]}
+{"cmd": "scan_start", "filters": ["AA:BB:CC:DD:EE:FF", "11:22:33:44:55:66"]}
+{"cmd": "scan_stop"}
+
+without filter:
+{"cmd": "scan_start"} 
 {"cmd": "scan_stop"}
 
 ```
@@ -65,6 +69,19 @@ Die Kommunikation läuft über die USB-CDC Schnittstelle (115200 Baud).
   "add": 0.0
 }
 
+```
+
+**Display Helligkeit:**
+
+```json
+{"cmd": "brightness", "value": 50}
+```
+
+**Alarm Animation:**
+
+```json
+{"cmd": "alarm_on"}
+{"cmd": "alarm_off"}
 ```
 
 ### 2. Events vom Dongle an den Host (TX)
