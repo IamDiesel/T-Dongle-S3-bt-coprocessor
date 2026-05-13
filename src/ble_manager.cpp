@@ -127,7 +127,9 @@ class MyClientCallback : public NimBLEClientCallbacks {
     void onDisconnect(NimBLEClient* pclient) {
         String mac = pclient->getPeerAddress().toString().c_str();
         mac.toUpperCase();
-        sendStatusMessage("Verbindung getrennt: " + mac);
+        
+        // FIX 1: Fehlermeldung bei unerwartetem Disconnect ausgeben!
+        sendErrorEvent("disconnected", "Sensor-Verbindung abgerissen!", mac);
         
         if (xSemaphoreTake(bleMutex, portMAX_DELAY)) {
             activeConnections.erase(mac);
@@ -206,11 +208,13 @@ void connectToBleServer(String macAddress, SensorConfig config) {
                 return;
             }
         }
-        sendStatusMessage("Fehler: Service nicht gefunden!");
+        // FIX 2: Wenn der Service oder die Char fehlt, das als Fehler ankreiden
         pClient->disconnect(); 
+        sendErrorEvent("invalid_service", "Falscher Sensor: Service/Char fehlt!", cleanMac);
     } else {
-        sendStatusMessage("Fehler: Timeout nach 3 Versuchen!");
+        // FIX 3: Timeout als Fehler ausgeben!
         NimBLEDevice::deleteClient(pClient);
+        sendErrorEvent("connect_failed", "Sensor nicht gefunden (Timeout)!", cleanMac);
         adjustScanTiming();
         if (isScanRequested) pBLEScan->start(0, nullptr, false); 
     }
@@ -249,7 +253,6 @@ String getBleStatusMsg() {
     if (xSemaphoreTake(bleMutex, portMAX_DELAY)) {
         if (!activeConnections.empty()) {
             auto it = activeConnections.begin();
-            // Saubere Formatierung für das Display
             msg = "MAC: " + it->first.substring(9) + "\nWert: " + it->second.lastValue;
         } else {
             msg = "Warte auf Daten...";

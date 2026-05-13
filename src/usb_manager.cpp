@@ -48,6 +48,17 @@ void sendStatusMessage(String msg) {
     enqueueJson(doc, true); 
 }
 
+void sendErrorEvent(String type, String msg, String mac) {
+    JsonDocument doc;
+    doc["event"] = "error";
+    doc["type"] = type;
+    doc["msg"] = msg;
+    if (mac != "") doc["mac"] = mac;
+    enqueueJson(doc, true); 
+    
+    showErrorDisplay(msg);
+}
+
 void processUSBTx() {
     std::vector<String> copyBuffer;
     
@@ -93,7 +104,6 @@ void processUSBRx() {
             else if (cmd == "alarm_off") {
                 setAlarmActive(false);
             }
-            // NEU: Helligkeit setzen (JSON)
             else if (cmd == "brightness") {
                 setDisplayBrightness(doc["value"] | 100);
             }
@@ -110,17 +120,21 @@ void processUSBRx() {
                 cfg.addOffset   = doc["add"]        | 0.0;
                 
                 if (mac != "") connectToBleServer(mac, cfg);
+                else sendErrorEvent("invalid_command", "MAC-Adresse fehlt beim Connect!", "");
             } 
             else if (cmd == "disconnect") {
                 String mac = doc["mac"] | "";
                 if (mac != "") disconnectFromBleServer(mac);
+                else sendErrorEvent("invalid_command", "MAC-Adresse fehlt beim Disconnect!", "");
+            }
+            else {
+                sendErrorEvent("invalid_command", "Unbekannter Befehl: " + cmd, "");
             }
         } else {
             if (input == "scan_start") startScan({});
             else if (input == "scan_stop") stopScan();
             else if (input == "alarm_on") setAlarmActive(true);
             else if (input == "alarm_off") setAlarmActive(false);
-            // NEU: Helligkeit setzen (Text)
             else if (input.startsWith("brightness ")) {
                 setDisplayBrightness(input.substring(11).toInt());
             }
@@ -132,6 +146,9 @@ void processUSBRx() {
             }
             else if (input.startsWith("disconnect ")) {
                 disconnectFromBleServer(input.substring(11));
+            }
+            else {
+                sendErrorEvent("invalid_command", "Unbekannt: " + input, "");
             }
         }
     }

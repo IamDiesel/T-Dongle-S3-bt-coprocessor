@@ -23,6 +23,9 @@ void showModeOverlay(String modeName);
 void setAlarmActive(bool active);
 bool getAlarmActive();
 
-// NEU: Helligkeitssteuerung
 void setDisplayBrightness(uint8_t percent);
 uint8_t getDisplayBrightness();
+
+// Error Handling
+void showErrorDisplay(String errMsg);
+bool getErrorActive();

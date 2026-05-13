@@ -30,7 +30,6 @@ void loop() {
     static uint32_t last_btn_press = 0;
     uint32_t now = millis();
 
-    // --- Flanken-gesteuertes Button Handling ---
     bool current_btn_state = (digitalRead(BOOT_PIN) == LOW);
     static bool last_btn_state = false;
 
@@ -38,10 +37,13 @@ void loop() {
         if (now - last_btn_press > 50) { 
             
             if (getAlarmActive()) {
-                // Wenn Alarm aktiv ist, schaltet der Knopf NUR den Alarm aus!
                 setAlarmActive(false);
-            } else {
-                // Normales Durchschalten der 6 Modi
+            } 
+            else if (getErrorActive()) {
+                // Button unterdrückt lediglich den Fehler vorzeitig nicht, 
+                // geht aber auch nicht unbeabsichtigt in den nächsten Modus.
+            }
+            else {
                 DisplayMode cur = getDisplayMode();
                 cur = (DisplayMode)((cur + 1) % 6); 
                 setDisplayMode(cur);
@@ -53,10 +55,7 @@ void loop() {
                     leds[0] = CRGB::Black;
                     FastLED.show();
                 } else {
-                    // FIX: LED Helligkeit an die globale USB-Brightness (0-100%) koppeln!
                     FastLED.setBrightness(map(getDisplayBrightness(), 0, 100, 0, 255)); 
-                    
-                    // Wir erzwingen hier direkt ein Update, damit die LED beim Buttondruck sofort anspringt
                     uint8_t ledHue = isBleConnected() ? 96 : (isBleScanning() ? 160 : 32);
                     leds[0] = CHSV(ledHue, 255, 255);
                     FastLED.show();
@@ -79,10 +78,8 @@ void loop() {
     processUSBRx(); 
     processUSBTx();
 
-    // --- Aggressives Blinken während des Alarms ---
     if (getAlarmActive()) {
         if ((now / 150) % 2 == 0) { 
-            // FIX: Auch der Alarm respektiert jetzt den Helligkeits-Parameter
             FastLED.setBrightness(map(getDisplayBrightness(), 0, 100, 0, 255));
             leds[0] = CRGB::Red;
         } else {
@@ -91,7 +88,16 @@ void loop() {
         }
         FastLED.show();
     } 
-    // --- Normales UI & LED Update (1x pro Sekunde) ---
+    else if (getErrorActive()) {
+        if ((now / 500) % 2 == 0) { 
+            FastLED.setBrightness(map(getDisplayBrightness(), 0, 100, 0, 255));
+            leds[0] = CRGB::Red;
+        } else {
+            FastLED.setBrightness(0);
+            leds[0] = CRGB::Black;
+        }
+        FastLED.show();
+    }
     else if (now - last_ui_update > 1000) {
         last_ui_update = now;
         DisplayMode mode = getDisplayMode();
@@ -106,15 +112,10 @@ void loop() {
 
         if (led_is_on_mode) {
             uint8_t ledHue = isConn ? 96 : (isScan ? 160 : 32); 
-            
-            // FIX: Skalierung der FastLED Helligkeit (0-100% -> 0-255)
             FastLED.setBrightness(map(getDisplayBrightness(), 0, 100, 0, 255));
             leds[0] = CHSV(ledHue, 255, 255); 
             FastLED.show();
             delay(15); 
-            
-            // Da FastLED.setBrightness() global skaliert, funktioniert das Pulsieren
-            // hier weiterhin perfekt proportional zur eingestellten Grundhelligkeit!
             leds[0] = CHSV(ledHue, 255, 100); 
             FastLED.show();
         } else {
